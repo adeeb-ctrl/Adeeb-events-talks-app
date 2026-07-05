@@ -1,6 +1,7 @@
 // Application State
 let appState = {
     feedData: null,
+    filteredEntries: [], // Currently displayed entries
     searchQuery: '',
     activeFilter: 'all', // 'all', 'Feature', 'Fix', 'Change', etc.
     sortOrder: 'desc',   // 'desc' (newest first) or 'asc' (oldest first)
@@ -18,6 +19,7 @@ const elements = {
     releasesFeed: document.getElementById('releases-feed'),
     emptyState: document.getElementById('feed-empty-state'),
     resetFiltersBtn: document.getElementById('btn-reset-filters'),
+    exportBtn: document.getElementById('btn-export'),
     
     // Stats
     statTotalVal: document.getElementById('stat-total-val'),
@@ -51,6 +53,9 @@ function setupEventListeners() {
     elements.refreshBtn.addEventListener('click', () => {
         fetchReleases(true);
     });
+
+    // Export to CSV
+    elements.exportBtn.addEventListener('click', exportToCSV);
 
     // Search filter
     elements.searchInput.addEventListener('input', (e) => {
@@ -283,6 +288,9 @@ function renderPage() {
         const dateB = new Date(b.title);
         return appState.sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
     });
+
+    // Save globally for exports
+    appState.filteredEntries = filteredEntries;
     
     // Render Feed List
     elements.releasesFeed.innerHTML = '';
@@ -304,12 +312,19 @@ function renderPage() {
                         <div class="release-item-header">
                             <span class="type-badge">${escapeHtml(item.type)}</span>
                             <div class="item-actions">
+                                <button class="btn-icon btn-copy-item" title="Copy text to clipboard"
+                                    data-date="${escapeHtml(entry.title)}"
+                                    data-type="${escapeHtml(item.type)}"
+                                    data-text="${escapeHtml(item.text)}"
+                                    data-link="${escapeHtml(entry.link)}">
+                                    <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="copy-svg"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                </button>
                                 <button class="btn-icon btn-tweet-item" title="Share this item on X / Twitter"
                                     data-date="${escapeHtml(entry.title)}"
                                     data-type="${escapeHtml(item.type)}"
                                     data-text="${escapeHtml(item.text)}"
                                     data-link="${escapeHtml(entry.link)}">
-                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
+                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
                                 </button>
                             </div>
                         </div>
@@ -337,17 +352,17 @@ function renderPage() {
             elements.releasesFeed.appendChild(cardEl);
         });
         
-        // Add Tweet Listeners to newly rendered items
-        setupTweetButtons();
+        // Add Listeners to newly rendered items
+        setupItemActionListeners();
     }
 }
 
-// Setup listeners specifically for individual share buttons
-function setupTweetButtons() {
+// Setup listeners for copy and tweet buttons
+function setupItemActionListeners() {
+    // Tweet Buttons
     const tweetButtons = document.querySelectorAll('.btn-tweet-item');
     tweetButtons.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            // Find closest click event in case SVG clicked
             const button = e.currentTarget;
             const date = button.getAttribute('data-date');
             const type = button.getAttribute('data-type');
@@ -357,6 +372,80 @@ function setupTweetButtons() {
             openTweetModal(date, type, text, link);
         });
     });
+
+    // Copy Buttons
+    const copyButtons = document.querySelectorAll('.btn-copy-item');
+    copyButtons.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const button = e.currentTarget;
+            const date = button.getAttribute('data-date');
+            const type = button.getAttribute('data-type');
+            const text = button.getAttribute('data-text');
+            const link = button.getAttribute('data-link');
+            
+            // Format copy string
+            const copyContent = `BigQuery Release Update (${date})\n[${type}]: ${text}\n\nLink: ${link}`;
+            
+            try {
+                await navigator.clipboard.writeText(copyContent);
+                
+                // Show visual confirmation checkmark
+                const originalHTML = button.innerHTML;
+                button.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" stroke="#10b981" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" class="checkmark-svg"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                button.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                button.style.backgroundColor = 'rgba(16, 185, 129, 0.08)';
+                
+                // Reset after 2 seconds
+                setTimeout(() => {
+                    button.innerHTML = originalHTML;
+                    button.style.borderColor = '';
+                    button.style.backgroundColor = '';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+            }
+        });
+    });
+}
+
+// Export Filtered Release Notes to CSV
+function exportToCSV() {
+    if (!appState.filteredEntries || appState.filteredEntries.length === 0) {
+        alert("No release notes available to export.");
+        return;
+    }
+
+    let csvRows = [];
+    // CSV Header row
+    csvRows.push('"Date","Type","Description","Link"');
+    
+    appState.filteredEntries.forEach(entry => {
+        entry.items.forEach(item => {
+            // Escape quotes by doubling them
+            const dateStr = entry.title.replace(/"/g, '""');
+            const typeStr = item.type.replace(/"/g, '""');
+            const textStr = item.text.replace(/"/g, '""');
+            const linkStr = entry.link.replace(/"/g, '""');
+            
+            csvRows.push(`"${dateStr}","${typeStr}","${textStr}","${linkStr}"`);
+        });
+    });
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    
+    const downloadLink = document.createElement("a");
+    downloadLink.setAttribute("href", url);
+    
+    // Set file name with current date
+    const dateFormatted = new Date().toISOString().slice(0, 10);
+    downloadLink.setAttribute("download", `bigquery_release_notes_${dateFormatted}.csv`);
+    downloadLink.style.visibility = 'hidden';
+    
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    document.body.removeChild(downloadLink);
 }
 
 // Open Tweet Composer Modal
