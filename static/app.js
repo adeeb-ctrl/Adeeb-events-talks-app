@@ -20,6 +20,9 @@ const elements = {
     emptyState: document.getElementById('feed-empty-state'),
     resetFiltersBtn: document.getElementById('btn-reset-filters'),
     exportBtn: document.getElementById('btn-export'),
+    themeToggleBtn: document.getElementById('btn-theme-toggle'),
+    themeIconMoon: document.getElementById('theme-icon-moon'),
+    themeIconSun: document.getElementById('theme-icon-sun'),
     
     // Stats
     statTotalVal: document.getElementById('stat-total-val'),
@@ -43,12 +46,16 @@ const elements = {
 
 // Initialize Application
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     setupEventListeners();
     fetchReleases();
 });
 
 // Setup Event Listeners
 function setupEventListeners() {
+    // Theme toggle
+    elements.themeToggleBtn.addEventListener('click', toggleTheme);
+
     // Refresh feed
     elements.refreshBtn.addEventListener('click', () => {
         fetchReleases(true);
@@ -555,3 +562,32 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
 }
+
+// Initialize Theme (handles loading state from localStorage)
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeIcons(savedTheme);
+}
+
+// Toggle between light and dark themes
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeIcons(newTheme);
+}
+
+// Update SVG icons based on theme
+function updateThemeIcons(theme) {
+    if (theme === 'light') {
+        elements.themeIconSun.style.display = 'none';
+        elements.themeIconMoon.style.display = 'block';
+    } else {
+        elements.themeIconMoon.style.display = 'none';
+        elements.themeIconSun.style.display = 'block';
+    }
+}
+
